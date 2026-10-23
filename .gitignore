@@ -1,0 +1,6 @@
+__pycache__/
+data/*.csv
+data_store/
+models/*.npz
+logs_*.txt
+.venv/

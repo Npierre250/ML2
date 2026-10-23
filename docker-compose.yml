@@ -1,0 +1,59 @@
+# Whole system with plain Docker: sensor stream -> autoencoder scoring -> dashboard.
+#   docker compose up --build         then open http://localhost:5000
+# (For Flink + PostgreSQL see flink/README.md - those services are an optional add-on.)
+
+x-app: &app
+  build: .
+  networks: [iot-net]
+
+services:
+  trainer:                      # runs once: simulates healthy+faulty data, trains on healthy only, saves the model
+    <<: *app
+    container_name: ae-trainer
+    command: python train.py --records 40000
+    volumes:
+      - models:/app/models
+      - store:/app/data_store
+    restart: "no"
+
+  generator:                    # the TCP server: 15 machines, labelled readings (labels are used ONLY for evaluation)
+    <<: *app
+    container_name: sensor-generator
+    command: python simulate_factory_data.py --mode stream --host 0.0.0.0 --port 9999 --interval 0.1 --emit-label
+    expose: ["9999"]
+    restart: unless-stopped
+
+  processor:                    # connects to the generator, scores every reading, writes results + live metrics
+    <<: *app
+    container_name: stream-processor
+    command: python stream_processor.py
+    environment:
+      SOCKET_HOST: generator
+      SOCKET_PORT: "9999"
+    depends_on:
+      trainer:   { condition: service_completed_successfully }
+      generator: { condition: service_started }
+    volumes:
+      - models:/app/models
+      - store:/app/data_store
+    restart: unless-stopped
+
+  dashboard:
+    <<: *app
+    container_name: iot-dashboard
+    command: python dashboard.py
+    ports: ["5000:5000"]
+    depends_on:
+      trainer: { condition: service_completed_successfully }
+    volumes:
+      - models:/app/models:ro
+      - store:/app/data_store
+    restart: unless-stopped
+
+volumes:
+  models:
+  store:
+
+networks:
+  iot-net:
+    driver: bridge

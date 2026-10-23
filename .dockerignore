@@ -1,0 +1,7 @@
+.git
+__pycache__
+data_store
+data/*.csv
+models/*.npz
+docs
+tests
